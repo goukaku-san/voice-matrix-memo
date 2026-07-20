@@ -37,6 +37,13 @@ header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.02em}
 }
 main{padding:16px;max-width:640px;margin:0 auto}
 
+/* ---- 期限到来バナー ---- */
+#dueBanner{background:#fff4e5;border:2px solid var(--q1);border-radius:12px;padding:13px 14px;margin-bottom:16px}
+#dueBanner h4{margin:0 0 7px;font-size:14px;color:#8a4a00}
+#dueBanner ul{margin:0;padding-left:18px;font-size:14px}
+#dueBanner li{margin-bottom:3px;cursor:pointer;text-decoration:underline}
+#dueBanner .close{margin-top:9px}
+
 /* ---- 入力 ---- */
 .capture{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
 #micBtn{
@@ -102,12 +109,16 @@ main{padding:16px;max-width:640px;margin:0 auto}
 <header>
   <h1>音声メモ → マトリクス</h1>
   <div class="hbtns">
+    <button class="hbtn" id="btnSet">設定</button>
     <button class="hbtn" id="btnHist">履歴</button>
     <button class="hbtn" id="btnInfo">仕様</button>
   </div>
 </header>
 
 <main>
+  <!-- 期限到来のお知らせ（アプリを開いた時にまとめて出る） -->
+  <section id="dueBanner" class="hidden"></section>
+
   <!-- 入力 -->
   <section class="capture" id="capture">
     <button id="micBtn">🎤 話す</button>
@@ -144,9 +155,18 @@ const QCLS  = {1:'q1',2:'q2',3:'q3',4:'q4'};
 const PROMOTE_DAYS = 3;   // 期限がこの日数以内になったら Ⅱ→Ⅰ へ自動昇格
 
 /* ========== 保存 ========== */
-function load(){ try{ return JSON.parse(localStorage.getItem(KEY)) || {memos:[]}; }catch(e){ return {memos:[]}; } }
+const DEFAULTS = { memos:[], settings:{ notifyTime:'09:00' } };
+function load(){
+  let d;
+  try{ d = JSON.parse(localStorage.getItem(KEY)) || {}; }catch(e){ d = {}; }
+  if(!Array.isArray(d.memos)) d.memos = [];
+  if(!d.settings) d.settings = {};
+  if(!/^\d{2}:\d{2}$/.test(d.settings.notifyTime || '')) d.settings.notifyTime = DEFAULTS.settings.notifyTime;
+  return d;
+}
 function save(db){ localStorage.setItem(KEY, JSON.stringify(db)); }
 let db = load();
+const defaultTime = () => db.settings.notifyTime;
 
 /* ========== 日付ユーティリティ ========== */
 const today = () => { const d=new Date(); d.setHours(0,0,0,0); return d; };
@@ -375,13 +395,27 @@ function steps(){
         ],
         set:v => draft.remind.end = v, ask: v => v==='pick' ? ['endDate','終了日を入力（YYYY-MM-DD）'] : null },
 
-      { key:'rf', head:'【1問】リマインド', q:'頻度は？', hint:'',
-        opts:[
-          {v:'weekday', t:'平日の朝1回', rec:true},
-          {v:'daily', t:'毎日1回'},
-          {v:'custom', t:'曜日・時刻を指定する'}
+      { key:'rf', head:'【1問】リマインド', q:'いつ鳴らす？',
+        hint:'既定の通知時刻は ' + defaultTime() + '（設定でまとめて変えられる）',
+        opts:() => [
+          {v:'weekday', t:'平日 ' + defaultTime() + ' に1回', rec:true},
+          {v:'daily',   t:'毎日 ' + defaultTime() + ' に1回'},
+          {v:'custom',  t:'このメモだけ曜日と時刻を変える'}
         ],
-        set:v => draft.remind.freq = v, ask: v => v==='custom' ? ['freqDetail','曜日と時刻（例：月水金 8:00）'] : null },
+        set:v => {
+          draft.remind.freq = v;
+          draft.remind.time = defaultTime();
+          draft.remind.days = null;
+          if(v === 'custom'){
+            const t = prompt('時刻を入力（24時間表記 HH:MM）', defaultTime());
+            if(t && /^\d{1,2}:\d{2}$/.test(t.trim())){
+              const [h,m] = t.trim().split(':');
+              draft.remind.time = String(+h).padStart(2,'0') + ':' + m;
+            }
+            const d = prompt('鳴らす曜日を入力（例：月水金／平日／毎日）', '毎日');
+            draft.remind.days = (d || '毎日').trim();
+          }
+        } },
 
       { key:'rc', head:'【1問】リマインド', q:'伝え方は？',
         hint:'Webアプリのため、マナーモードを貫通する爆音アラームは実現できない（OS制約）。',
@@ -483,7 +517,7 @@ function detail(id){
     : r.pending ? 'あとで決める'
     : [ {today:'今日から',before:'期限の3日前から',pick:'指定:'+(r.startDate||'—')}[r.start],
         {deadline:'期限日まで',done:'完了までずっと',pick:'指定:'+(r.endDate||'—')}[r.end],
-        {weekday:'平日の朝1回',daily:'毎日1回',custom:(r.freqDetail||'指定')}[r.freq],
+        {weekday:'平日',daily:'毎日',custom:(r.days||'指定')}[r.freq] + ' ' + (r.time || defaultTime()) + ' に1回',
         {both:'通知＋バイブ',sound:'通知音のみ',vib:'バイブのみ',silent:'画面表示のみ'}[r.channel] ].filter(Boolean).join(' / ');
 
   let mv = '';
@@ -499,6 +533,11 @@ function detail(id){
     <div class="kv"><span>リマインド</span><span>${esc(rtxt)}</span></div>
     <p class="note">象限を変える：</p>
     <div class="movegrid">${mv}</div>
+    <p class="note">Web通知はアプリを閉じている間を保証できない。確実に起こしたい用件はこちらでカレンダーへ渡す：</p>
+    <div class="rowbtns">
+      <button id="dIcs">📅 カレンダーに入れる</button>
+      <button id="dCopy">📋 コピー</button>
+    </div>
     <div class="rowbtns">
       <button id="dDel">削除</button>
       <button id="dDone" class="primary">完了にする</button>
@@ -509,6 +548,8 @@ function detail(id){
   modal.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => {
     m.quadrant = +b.dataset.mv; save(db); render(); detail(id);
   });
+  document.getElementById('dIcs').onclick  = () => downloadIcs(m);
+  document.getElementById('dCopy').onclick = e => copyPlain(m, e.currentTarget);
   document.getElementById('dDone').onclick = () => {
     m.done = true; m.doneAt = new Date().toISOString(); save(db); render(); closeModal();
   };
@@ -540,9 +581,8 @@ document.getElementById('btnInfo').onclick = () => {
     ・音声から期限・相手を自動抽出してタイトル化<br>
     ・期限${PROMOTE_DAYS}日前になったら Ⅱ→Ⅰ へ自動昇格<br>
     ・データは端末内に保存（キー：${KEY}）<br><br>
-    <b>まだできない（未実装・次の工程）</b><br>
-    ・通知／バイブの実際の発火。今は設定を記録しているだけ<br>
-    ・.ics 書き出し、コピー用テキスト<br><br>
+    ・リマインド：設定時刻（既定 ${db.settings.notifyTime}）を過ぎたメモを、アプリを開いている間に通知＋バイブ。開いた時にもまとめて出す<br><br>
+    ・各メモをカレンダー用 .ics に書き出し／貼り付け用テキストにコピー<br><br>
     <b>原理的にできない（OS制約・盛らない）</b><br>
     ・アプリを閉じている間の、マナーモードを貫通する爆音アラーム<br>
     ・iOSではバックグラウンドの予約通知が不安定<br>
@@ -553,8 +593,229 @@ document.getElementById('btnInfo').onclick = () => {
   document.getElementById('iClose').onclick = closeModal;
 };
 
+/* ========== 逃げ道：.ics 書き出し / コピー用テキスト ==========
+   Web通知は「アプリを閉じている間」を保証できない。確実に起こしたい用件は
+   カレンダー側（Google / iOS純正）へ渡す。ここが取りこぼし防止の本命。 */
+
+/* iCalendar のテキスト規則：特殊文字のエスケープと、75オクテットでの行折り返し */
+const icsEsc = s => String(s==null?'':s).replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n');
+function icsFold(line){
+  const enc = new TextEncoder();
+  let out = '', cur = '', bytes = 0;
+  for(const ch of line){
+    const n = enc.encode(ch).length;
+    if(bytes + n > 73){ out += cur + '\r\n '; cur = ''; bytes = 0; }   // 継続行は先頭に空白
+    cur += ch; bytes += n;
+  }
+  return out + cur;
+}
+const stamp = d => d.getUTCFullYear()
+  + String(d.getUTCMonth()+1).padStart(2,'0') + String(d.getUTCDate()).padStart(2,'0') + 'T'
+  + String(d.getUTCHours()).padStart(2,'0') + String(d.getUTCMinutes()).padStart(2,'0')
+  + String(d.getUTCSeconds()).padStart(2,'0') + 'Z';
+
+/* リマインド開始が期限の何日前か（VALARM の事前通知に使う） */
+function leadDays(m){
+  if(!m.remind || m.remind.pending || !m.deadline) return 0;
+  const w = remindWindow(m); if(!w) return 0;
+  const diff = Math.round((new Date(m.deadline+'T00:00:00') - new Date(w.from+'T00:00:00')) / 86400000);
+  return diff > 0 ? diff : 0;
+}
+
+function icsFor(m){
+  const date = (m.deadline || iso(today())).replace(/-/g,'');
+  const [hh, mm] = ((m.remind && m.remind.time) || defaultTime()).split(':');
+  const start = date + 'T' + hh + mm + '00';                       // 時刻はローカル時刻として扱う
+  const endH  = String((+hh + 1) % 24).padStart(2,'0');
+  const end   = date + 'T' + endH + mm + '00';
+  const desc  = [m.text, m.who ? '相手：' + m.who : '', '象限：' + QNAME[m.quadrant],
+                 '（音声メモ→マトリクス から書き出し）'].filter(Boolean).join('\n');
+  const lead = leadDays(m);
+
+  const lines = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//voice-matrix-memo//JP', 'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    'UID:' + m.id + '@voice-matrix-memo',
+    'DTSTAMP:' + stamp(new Date()),
+    'DTSTART:' + start,
+    'DTEND:' + end,
+    'SUMMARY:' + icsEsc(m.title),
+    'DESCRIPTION:' + icsEsc(desc),
+    'BEGIN:VALARM', 'TRIGGER:PT0S', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsEsc(m.title), 'END:VALARM'
+  ];
+  if(lead > 0){
+    lines.push('BEGIN:VALARM', 'TRIGGER:-P' + lead + 'D', 'ACTION:DISPLAY',
+               'DESCRIPTION:' + icsEsc(m.title + '（' + lead + '日後が期限）'), 'END:VALARM');
+  }
+  lines.push('END:VEVENT', 'END:VCALENDAR');
+  return lines.map(icsFold).join('\r\n') + '\r\n';
+}
+
+function downloadIcs(m){
+  const blob = new Blob([icsFor(m)], { type:'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (m.title.replace(/[\\/:*?"<>|]/g,'_').slice(0,30) || 'memo') + '.ics';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function plainText(m){
+  const r = m.remind;
+  return [
+    '■ ' + m.title,
+    '期限：' + (m.deadline ? fmt(m.deadline) + '（' + m.deadline + '）' : 'なし'),
+    m.who ? '相手：' + m.who : '',
+    '象限：' + QNAME[m.quadrant],
+    (r && !r.pending) ? 'リマインド：' + ({weekday:'平日',daily:'毎日',custom:(r.days||'指定')}[r.freq]) + ' ' + (r.time || defaultTime()) : '',
+    '',
+    m.text
+  ].filter(Boolean).join('\n');
+}
+
+function copyPlain(m, btn){
+  const t = plainText(m);
+  const done = () => { if(btn){ const o = btn.textContent; btn.textContent = 'コピーした'; setTimeout(() => btn.textContent = o, 1600); } };
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(t).then(done).catch(() => fallback());
+  }else fallback();
+  function fallback(){
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); done(); }catch(e){ prompt('コピーしてください', t); }
+    ta.remove();
+  }
+}
+
+/* ========== リマインド発火 ==========
+   正直な範囲：アプリを開いている間は確実に鳴る／開いた時に期限到来分をまとめて出す。
+   アプリを閉じている間の予約通知はiOSでは不安定なため、当てにしない設計にしている。 */
+const DAYMAP = {'日':0,'月':1,'火':2,'水':3,'木':4,'金':5,'土':6};
+
+function remindWindow(m){
+  const r = m.remind; if(!r || r.pending) return null;
+  const dl = m.deadline;
+  let from = r.start === 'today'  ? (m.createdAt || '').slice(0,10)
+           : r.start === 'before' ? (dl ? iso(addDays(new Date(dl+'T00:00:00'), -PROMOTE_DAYS)) : null)
+           : r.startDate;
+  let to   = r.end === 'deadline' ? dl
+           : r.end === 'done'     ? '2999-12-31'
+           : r.endDate;
+  if(!from) from = iso(today());
+  if(!to)   to   = dl || '2999-12-31';
+  return { from, to };
+}
+
+function matchesDay(m, d){
+  const r = m.remind;
+  if(r.freq === 'daily') return true;
+  if(r.freq === 'weekday') return d.getDay() >= 1 && d.getDay() <= 5;
+  const spec = (r.days || '毎日').trim();
+  if(spec.includes('毎日')) return true;
+  if(spec.includes('平日')) return d.getDay() >= 1 && d.getDay() <= 5;
+  const wanted = [...spec].filter(c => c in DAYMAP).map(c => DAYMAP[c]);
+  return wanted.length ? wanted.includes(d.getDay()) : true;
+}
+
+/* 今この瞬間、鳴らすべきメモの一覧 */
+function dueNow(){
+  const now = new Date();
+  const t = today(), ts = iso(t);
+  const hhmm = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  return db.memos.filter(m => {
+    if(m.done || !m.remind || m.remind.pending) return false;
+    const w = remindWindow(m); if(!w) return false;
+    if(ts < w.from || ts > w.to) return false;
+    if(!matchesDay(m, t)) return false;
+    if(hhmm < (m.remind.time || defaultTime())) return false;   // 時刻がまだ来ていない
+    return m.remind.lastNotified !== ts;                        // 今日はもう鳴らした
+  });
+}
+
+function markNotified(list){
+  const ts = iso(today());
+  list.forEach(m => m.remind.lastNotified = ts);
+  save(db);
+}
+
+function fire(list){
+  if(!list.length) return;
+  const wantSound = list.some(m => ['both','sound'].includes(m.remind.channel));
+  const wantVib   = list.some(m => ['both','vib'].includes(m.remind.channel));
+  if(wantSound && 'Notification' in window && Notification.permission === 'granted'){
+    const body = list.map(m => '・' + m.title).join('\n');
+    try{ new Notification('リマインド ' + list.length + '件', { body, tag:'vmm-remind' }); }catch(e){}
+  }
+  if(wantVib && navigator.vibrate) navigator.vibrate([200,100,200]);
+  showBanner(list);
+  markNotified(list);
+}
+
+function showBanner(list){
+  const el = document.getElementById('dueBanner');
+  el.className = '';
+  el.innerHTML = '<h4>🔔 リマインド ' + list.length + '件</h4><ul>'
+    + list.map(m => `<li data-id="${m.id}">${esc(m.title)}（期限 ${fmt(m.deadline)}）</li>`).join('')
+    + '</ul><div class="close"><button class="linkbtn" id="dbClose">閉じる</button></div>';
+  el.querySelectorAll('li').forEach(li => li.onclick = () => detail(li.dataset.id));
+  document.getElementById('dbClose').onclick = () => { el.className = 'hidden'; el.innerHTML = ''; };
+}
+
+/* 開いた時に1回 ＋ 開いている間は30秒ごと */
+function tick(){ fire(dueNow()); }
+
+/* ========== 設定 ========== */
+document.getElementById('btnSet').onclick = () => {
+  const perm = !('Notification' in window) ? 'この端末は通知に非対応'
+             : Notification.permission === 'granted' ? '許可済み'
+             : Notification.permission === 'denied'  ? '拒否されている（ブラウザの設定から変更が必要）'
+             : '未設定';
+  modal.className = 'mask';
+  modal.innerHTML = `<div class="sheet"><h3>設定</h3>
+    <div class="kv"><span>通知時刻</span><span>すべてのメモの既定。個別に変えたメモはそのまま</span></div>
+    <input type="time" id="setTime" value="${db.settings.notifyTime}"
+      style="width:100%;padding:12px;font-size:18px;border:1px solid var(--line);border-radius:10px;margin:10px 0;font-family:inherit">
+    <div class="kv"><span>通知の許可</span><span>${perm}</span></div>
+    <div class="rowbtns">
+      <button id="setPerm">通知を許可する</button>
+      <button id="setTest" class="primary">テスト通知</button>
+    </div>
+    <p class="note">
+      <b>鳴る条件（できること）</b><br>
+      ・アプリを開いている間、設定時刻を過ぎたメモを鳴らす<br>
+      ・アプリを開いた時、その日の対象をまとめて出す<br><br>
+      <b>鳴らない条件（できないこと・OS制約）</b><br>
+      ・アプリを閉じている間の予約通知。iOSでは当てにできない<br>
+      ・<b>マナーモードを貫通する爆音アラームはWebでは不可能</b>。音量とマナーモードは端末側の設定に従う<br>
+      ・確実に起こしたい用件は、この後で作る .ics 書き出しでカレンダー側へ逃がすのが現実解
+    </p>
+    <div class="wizfoot"><button class="linkbtn" id="sClose">閉じる</button></div></div>`;
+  modal.onclick = e => { if(e.target === modal) closeModal(); };
+  document.getElementById('setTime').onchange = e => {
+    if(/^\d{2}:\d{2}$/.test(e.target.value)){ db.settings.notifyTime = e.target.value; save(db); }
+  };
+  document.getElementById('setPerm').onclick = () => {
+    if(!('Notification' in window)) return alert('この端末は通知に対応していない。バイブと画面表示だけ動く。');
+    Notification.requestPermission().then(() => closeModal());
+  };
+  document.getElementById('setTest').onclick = () => {
+    if('Notification' in window && Notification.permission === 'granted'){
+      try{ new Notification('テスト通知', { body:'この見え方で届く。' }); }catch(e){}
+    }else{
+      alert('通知が許可されていないため、通知は出せない。バイブだけ試す。');
+    }
+    if(navigator.vibrate) navigator.vibrate([200,100,200]);
+  };
+  document.getElementById('sClose').onclick = closeModal;
+};
+
 /* ========== 起動 ========== */
 render();
+tick();
+setInterval(tick, 30000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden) tick(); });
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }

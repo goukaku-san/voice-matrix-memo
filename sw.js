@@ -1,7 +1,8 @@
 // 音声メモ → マトリクス / Service Worker
 // 役割：オフラインでも画面が開くようにシェルをキャッシュするだけ。
-// 通知の発火はこの版では未実装（やること3で扱う）。
-const CACHE = 'vmm-v1';
+// リマインドの発火はページ側（index.html）が担当する。アプリを閉じている間の
+// 予約通知はiOSで信頼できないため、Service Worker では扱わない。
+const CACHE = 'vmm-v2';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
