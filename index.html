@@ -112,7 +112,7 @@ main{padding:16px;max-width:640px;margin:0 auto}
   <section class="capture" id="capture">
     <button id="micBtn">🎤 話す</button>
     <div class="orlabel">— 音声が使えない時はこちらに直接入力 —</div>
-    <textarea id="memoText" placeholder="例：来月までに12月の日程を宝塚阪急のバイヤーに相談する"></textarea>
+    <textarea id="memoText" placeholder="例：来月までに12月の日程を取引先のバイヤーに相談する"></textarea>
     <div class="rowbtns">
       <button id="btnClear">クリア</button>
       <button id="btnGo" class="primary">振り分けへ</button>
@@ -312,7 +312,7 @@ function presetUrgency(){
 function steps(){
   const pre = presetUrgency();
   const list = [
-    { key:'imp', head:'【1問】重要度', q:'これは事業・売上・玉井さんの役割に直結する？',
+    { key:'imp', head:'【1問】重要度', q:'これは事業・売上・あなたの役割に直結する？',
       hint: draft.who ? ('相手：' + draft.who) : '',
       opts:[
         {v:'high', t:'直結する（重要）', rec:true},
