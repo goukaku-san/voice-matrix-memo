@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<meta name="theme-color" content="#2b2b2b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="メモ振り分け">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>音声メモ → マトリクス</title>
+<style>
+:root{
+  --q1:#E8842A; --q2:#4A9B5C; --q3:#3B7BC4; --q4:#8B6244;
+  --bg:#f4f3f0; --card:#fff; --ink:#22201d; --sub:#6b6560; --line:#dedad4;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+  background:var(--bg);color:var(--ink);
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 8px) env(safe-area-inset-left);
+  font-size:16px;line-height:1.6;
+}
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--bg);z-index:20;
+}
+header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.02em}
+.hbtns{display:flex;gap:6px}
+.hbtn{
+  border:1px solid var(--line);background:var(--card);color:var(--sub);
+  border-radius:8px;padding:7px 10px;font-size:13px;cursor:pointer;
+}
+main{padding:16px;max-width:640px;margin:0 auto}
+
+/* ---- 入力 ---- */
+.capture{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+#micBtn{
+  width:100%;border:none;border-radius:12px;background:#22201d;color:#fff;
+  font-size:19px;font-weight:700;padding:20px 12px;cursor:pointer;letter-spacing:.04em;
+}
+#micBtn.rec{background:#c0392b;animation:pulse 1.2s infinite}
+#micBtn:disabled{background:#9b9691}
+@keyframes pulse{50%{opacity:.65}}
+.orlabel{text-align:center;color:var(--sub);font-size:12px;margin:12px 0 8px}
+#memoText{
+  width:100%;min-height:76px;border:1px solid var(--line);border-radius:10px;
+  padding:11px;font-size:16px;font-family:inherit;resize:vertical;background:#fcfbfa;
+}
+.rowbtns{display:flex;gap:8px;margin-top:10px}
+.rowbtns button{flex:1;padding:13px;border-radius:10px;border:1px solid var(--line);background:var(--card);font-size:15px;cursor:pointer}
+.rowbtns button.primary{background:#22201d;color:#fff;border-color:#22201d;font-weight:700}
+.note{font-size:11.5px;color:var(--sub);margin-top:10px;line-height:1.55}
+
+/* ---- 一問一答 ---- */
+#wizard{background:var(--card);border:2px solid #22201d;border-radius:14px;padding:16px;margin-bottom:18px}
+.qhead{font-size:12px;color:var(--sub);margin-bottom:4px}
+.qtext{font-size:17px;font-weight:700;margin-bottom:4px}
+.qhint{font-size:12.5px;color:var(--sub);margin-bottom:12px}
+.opt{
+  display:block;width:100%;text-align:left;border:1px solid var(--line);background:#fcfbfa;
+  border-radius:10px;padding:13px 14px;margin-bottom:8px;font-size:15.5px;cursor:pointer;font-family:inherit;
+}
+.opt b{margin-right:7px}
+.opt .rec{background:#22201d;color:#fff;font-size:11px;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:2px}
+.opt .pre{background:#efece7;color:var(--sub);font-size:11px;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:2px}
+.opt:active{background:#eee9e2}
+.wizfoot{display:flex;justify-content:space-between;margin-top:6px}
+.linkbtn{background:none;border:none;color:var(--sub);font-size:13px;text-decoration:underline;cursor:pointer;padding:6px 2px;font-family:inherit}
+
+/* ---- マトリクス ---- */
+.axis{display:flex;justify-content:center;font-size:11px;color:var(--sub);margin-bottom:6px;gap:34px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.quad{border-radius:12px;padding:10px;color:#fff;min-height:120px;display:flex;flex-direction:column}
+.q1{background:var(--q1)} .q2{background:var(--q2)} .q3{background:var(--q3)} .q4{background:var(--q4)}
+.quad h2{font-size:13px;margin:0 0 1px;font-weight:800}
+.quad .sub{font-size:10.5px;opacity:.9;margin-bottom:8px;line-height:1.35}
+.cards{display:flex;flex-direction:column;gap:6px}
+.card{background:rgba(255,255,255,.96);color:var(--ink);border-radius:8px;padding:8px 9px;font-size:13px;cursor:pointer}
+.card .ttl{font-weight:600;line-height:1.4}
+.card .meta{font-size:10.5px;color:var(--sub);margin-top:3px}
+.card .up{color:#c0392b;font-weight:700}
+.empty{font-size:11px;opacity:.75;padding:4px 2px}
+
+/* ---- 詳細 ---- */
+.mask{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;z-index:50}
+.sheet{background:var(--bg);width:100%;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px 16px calc(20px + env(safe-area-inset-bottom))}
+.sheet h3{margin:0 0 10px;font-size:17px}
+.kv{display:flex;gap:10px;font-size:14px;padding:7px 0;border-bottom:1px solid var(--line)}
+.kv span:first-child{color:var(--sub);min-width:62px;flex-shrink:0}
+.movegrid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:12px 0}
+.movegrid button{padding:11px;border:none;border-radius:9px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+.hidden{display:none}
+.histitem{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:7px;font-size:13.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>音声メモ → マトリクス</h1>
+  <div class="hbtns">
+    <button class="hbtn" id="btnHist">履歴</button>
+    <button class="hbtn" id="btnInfo">仕様</button>
+  </div>
+</header>
+
+<main>
+  <!-- 入力 -->
+  <section class="capture" id="capture">
+    <button id="micBtn">🎤 話す</button>
+    <div class="orlabel">— 音声が使えない時はこちらに直接入力 —</div>
+    <textarea id="memoText" placeholder="例：来月までに12月の日程を宝塚阪急のバイヤーに相談する"></textarea>
+    <div class="rowbtns">
+      <button id="btnClear">クリア</button>
+      <button id="btnGo" class="primary">振り分けへ</button>
+    </div>
+    <p class="note" id="speechNote"></p>
+  </section>
+
+  <!-- 一問一答 -->
+  <section id="wizard" class="hidden"></section>
+
+  <!-- マトリクス -->
+  <section id="board">
+    <div class="axis"><span>← 緊急</span><span>緊急でない →</span></div>
+    <div class="grid">
+      <div class="quad q1"><h2>Ⅰ 必須</h2><div class="sub">緊急 × 重要<br>締切のある仕事・重要な会議</div><div class="cards" id="c1"></div></div>
+      <div class="quad q2"><h2>Ⅱ 生産性とバランス</h2><div class="sub">緊急でない × 重要<br>人間関係作り・計画や準備</div><div class="cards" id="c2"></div></div>
+      <div class="quad q3"><h2>Ⅲ 錯覚</h2><div class="sub">緊急 × 重要でない<br>重要でない電話・妨害や邪魔</div><div class="cards" id="c3"></div></div>
+      <div class="quad q4"><h2>Ⅳ 無駄</h2><div class="sub">緊急でない × 重要でない<br>暇つぶし・意味のない行動</div><div class="cards" id="c4"></div></div>
+    </div>
+  </section>
+</main>
+
+<div id="modal" class="hidden"></div>
+
+<script>
+const KEY = 'gokaku_memo_matrix_v1';
+const QNAME = {1:'Ⅰ 必須',2:'Ⅱ 生産性とバランス',3:'Ⅲ 錯覚',4:'Ⅳ 無駄'};
+const QCLS  = {1:'q1',2:'q2',3:'q3',4:'q4'};
+const PROMOTE_DAYS = 3;   // 期限がこの日数以内になったら Ⅱ→Ⅰ へ自動昇格
+
+/* ========== 保存 ========== */
+function load(){ try{ return JSON.parse(localStorage.getItem(KEY)) || {memos:[]}; }catch(e){ return {memos:[]}; } }
+function save(db){ localStorage.setItem(KEY, JSON.stringify(db)); }
+let db = load();
+
+/* ========== 日付ユーティリティ ========== */
+const today = () => { const d=new Date(); d.setHours(0,0,0,0); return d; };
+const addDays = (d,n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+const iso = d => d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : null;
+const fmt = s => { if(!s) return '—'; const [y,m,d]=s.split('-'); return `${+m}/${+d}`; };
+const daysLeft = s => { if(!s) return null; const t=today(); const d=new Date(s+'T00:00:00'); return Math.round((d-t)/86400000); };
+const endOfMonth = (y,m) => new Date(y, m+1, 0);   // m は 0-index
+
+/* ========== 音声からの期限抽出 ==========
+   相対表現を先に見る（「12月の日程を来月までに」→ 来月が期限、12月は本文） */
+function parseDeadline(text){
+  const t = today(); const Y=t.getFullYear(), M=t.getMonth();
+  const rel = [
+    [/(?:今日|本日)(?:中|いっぱい)?/, () => t],
+    [/明日(?:中|いっぱい)?/,  () => addDays(t,1)],
+    [/(?:明後日|あさって)(?:中)?/, () => addDays(t,2)],
+    [/(\d+)\s*日後/,       m => addDays(t, +m[1])],
+    [/(\d+)\s*週間後/,     m => addDays(t, +m[1]*7)],
+    [/今週(?:中|末|いっぱい)?/, () => addDays(t, (7 - t.getDay()) % 7 || 7)],
+    [/来週/,               () => addDays(t, ((7 - t.getDay()) % 7 || 7) + 7)],
+    [/今月(?:中|末|いっぱい)?/, () => endOfMonth(Y, M)],
+    [/再来月/,             () => endOfMonth(Y, M+2)],
+    [/来月/,               () => endOfMonth(Y, M+1)],
+  ];
+  for(const [re, calc] of rel){
+    const m = text.match(re);
+    if(m) return { date: calc(m), label: m[0] };
+  }
+  let m = text.match(/(\d{1,2})月(\d{1,2})日/);
+  if(m){
+    let d = new Date(Y, +m[1]-1, +m[2]);
+    if(d < t) d = new Date(Y+1, +m[1]-1, +m[2]);
+    return { date:d, label:m[0] };
+  }
+  // 「12月の日程」を期限と誤読しないよう、まで/中/末 が付く時だけ拾う
+  m = text.match(/(\d{1,2})月(?:中|末|まで|までに)/);
+  if(m){
+    let d = endOfMonth(Y, +m[1]-1);
+    if(d < t) d = endOfMonth(Y+1, +m[1]-1);
+    return { date:d, label:m[0] };
+  }
+  return null;
+}
+
+/* ========== 相手の抽出 ==========
+   敬称・肩書を見つけ、そこから前へ辿って名前部分だけを取る。
+   前から正規表現で貪欲に取ると「来月までに12月の…」まで飲み込むため、後ろ向きに走査する。 */
+function parseWho(text){
+  const SUF  = /(さん|様|バイヤー|担当者|担当|部長|課長|社長|専務|先生|店長)/g;
+  const NAME = /[一-龥ぁ-んァ-ヶーA-Za-zＡ-Ｚａ-ｚ0-9０-９]/;
+  const STOP = 'のにをはがとへでもやかねよ、。 　\n';
+  let m, found = null;
+  while((m = SUF.exec(text))){
+    let i = m.index, noOfParticle = false;
+    if(i > 0 && text[i-1] === 'の'){ i--; noOfParticle = true; }   // 「〜のバイヤー」は の を跨いで名前を探す
+    const end = i;
+    while(i > 0 && i > end - 12 && NAME.test(text[i-1]) && STOP.indexOf(text[i-1]) < 0) i--;
+    const name = text.slice(i, end);
+    if(name) found = name + (noOfParticle ? 'の' : '') + m[0];
+  }
+  return found;
+}
+
+/* ========== タイトル化 ========== */
+function makeTitle(text, dl){
+  let s = text.trim().replace(/\s+/g,' ');
+  if(dl) s = s.replace(dl.label, '').replace(/^(?:までに|まで|中に|中|には|に|の|は|、|・|\s)+/,'').trim();
+  s = s.replace(/^(えーと|えっと|あの|その)\s*/,'');
+  return (s.length > 44 ? s.slice(0,44) + '…' : s) || text.slice(0,44);
+}
+
+/* ========== 象限判定 ==========
+   重要 = Q1「直結する」のみ（Eisenhower の原義に寄せる）
+   緊急 = Q2「今日〜数日」のみ。今週〜今月は非緊急に置き、期限3日前の自動昇格で拾う
+   → Ⅱ（生産性）が主役の象限になるようにした意図的な設計。違えば1タップで移動可 */
+const isImportant = imp => imp === 'high';
+const isUrgent    = urg => urg === 'now';
+function decideQuadrant(imp, urg){
+  if(isImportant(imp)) return isUrgent(urg) ? 1 : 2;
+  return isUrgent(urg) ? 3 : 4;
+}
+/* 表示上の象限（期限接近で Ⅱ→Ⅰ に自動昇格） */
+function effectiveQuadrant(m){
+  if(m.quadrant === 2 && m.deadline){
+    const d = daysLeft(m.deadline);
+    if(d !== null && d <= PROMOTE_DAYS) return 1;
+  }
+  return m.quadrant;
+}
+
+/* ========== 音声認識 ========== */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById('micBtn');
+const memoText = document.getElementById('memoText');
+const speechNote = document.getElementById('speechNote');
+let recog = null, recording = false;
+
+if(!SR){
+  micBtn.disabled = true;
+  micBtn.textContent = '🎤 音声認識は非対応';
+  speechNote.textContent = 'この端末／ブラウザは音声認識に対応していません。下のテキスト欄に直接入力してください。';
+}else{
+  speechNote.textContent = '音声認識は端末とネット接続に依存します（オフライン不可・精度は端末依存）。うまく取れない時は下の欄で直接入力・修正してください。';
+  micBtn.onclick = () => recording ? stopRec() : startRec();
+}
+function startRec(){
+  recog = new SR();
+  recog.lang = 'ja-JP'; recog.interimResults = true; recog.continuous = false;
+  const base = memoText.value ? memoText.value + ' ' : '';
+  recog.onresult = e => {
+    let s = '';
+    for(let i=0;i<e.results.length;i++) s += e.results[i][0].transcript;
+    memoText.value = base + s;
+  };
+  recog.onerror = e => {
+    speechNote.textContent = '音声認識エラー（' + e.error + '）。テキスト欄に直接入力してください。';
+    stopRec();
+  };
+  recog.onend = () => stopRec();
+  try{ recog.start(); recording = true; micBtn.classList.add('rec'); micBtn.textContent = '● 録音中 — タップで停止'; }
+  catch(err){ speechNote.textContent = '音声認識を開始できませんでした。テキスト欄に直接入力してください。'; }
+}
+function stopRec(){
+  if(recog){ try{ recog.stop(); }catch(e){} }
+  recording = false; micBtn.classList.remove('rec'); micBtn.textContent = '🎤 話す';
+}
+
+/* ========== 一問一答ウィザード ========== */
+const wizEl = document.getElementById('wizard');
+const capEl = document.getElementById('capture');
+let draft = null, step = 0;
+
+document.getElementById('btnClear').onclick = () => { memoText.value=''; memoText.focus(); };
+document.getElementById('btnGo').onclick = () => {
+  const text = memoText.value.trim();
+  if(!text){ memoText.focus(); return; }
+  stopRec();
+  const dl = parseDeadline(text);
+  draft = {
+    id: 'm' + Date.now(),
+    text, title: makeTitle(text, dl),
+    who: parseWho(text),
+    deadline: dl ? iso(dl.date) : null,
+    deadlineLabel: dl ? dl.label : null,
+    importance: null, urgency: null, quadrant: null,
+    remind: null, done:false, doneAt:null,
+    createdAt: new Date().toISOString()
+  };
+  step = 0; capEl.classList.add('hidden'); wizEl.classList.remove('hidden'); renderStep();
+  wizEl.scrollIntoView({behavior:'smooth', block:'start'});
+};
+
+/* 音声から拾えた期限を Q2 の既定選択にする */
+function presetUrgency(){
+  const d = daysLeft(draft.deadline);
+  if(d === null) return null;
+  if(d <= 3) return 'now';
+  if(d <= 31) return 'soon';
+  return 'later';
+}
+
+function steps(){
+  const pre = presetUrgency();
+  const list = [
+    { key:'imp', head:'【1問】重要度', q:'これは事業・売上・玉井さんの役割に直結する？',
+      hint: draft.who ? ('相手：' + draft.who) : '',
+      opts:[
+        {v:'high', t:'直結する（重要）', rec:true},
+        {v:'mid',  t:'あった方がいい程度'},
+        {v:'low',  t:'個人の雑事（重要でない）'}
+      ],
+      set:v => draft.importance = v },
+
+    { key:'urg', head:'【1問】緊急度', q:'期限は？',
+      hint: draft.deadlineLabel ? `音声から「${draft.deadlineLabel}」＝ ${fmt(draft.deadline)} を検出。既定を選択済み。` : '音声から期日は検出できなかった。',
+      opts:[
+        {v:'now',   t:'今日〜数日（緊急）',      pre: pre==='now'},
+        {v:'soon',  t:'今週〜今月（やや緊急）',  pre: pre==='soon'},
+        {v:'later', t:'まだ先（緊急でない）',    pre: pre==='later'}
+      ],
+      set:v => {
+        draft.urgency = v;
+        if(!draft.deadline){
+          const t = today();
+          draft.deadline = iso(v==='now' ? addDays(t,3) : v==='soon' ? endOfMonth(t.getFullYear(),t.getMonth()) : endOfMonth(t.getFullYear(),t.getMonth()+1));
+          draft.deadlineLabel = '自動仮置き';
+        }
+        draft.quadrant = decideQuadrant(draft.importance, draft.urgency);
+      } },
+
+    { key:'conf', head:'自動判定', q:() => `${QNAME[draft.quadrant]} と判定した。`,
+      hint:'違えば別の象限を選べば1タップで移動できる。',
+      opts:() => {
+        const o = [{v:String(draft.quadrant), t:'この判定でよい（' + QNAME[draft.quadrant] + '）', rec:true}];
+        [1,2,3,4].filter(n => n !== draft.quadrant).forEach(n => o.push({v:String(n), t:QNAME[n] + ' へ移す'}));
+        return o;
+      },
+      set:v => draft.quadrant = +v },
+
+    { key:'rmd', head:'【1問】リマインド', q:'リマインドする？',
+      hint:'',
+      opts:[
+        {v:'yes',   t:'する', rec:true},
+        {v:'no',    t:'しない'},
+        {v:'later', t:'あとで決める'}
+      ],
+      set:v => draft.remind = (v==='yes') ? {} : (v==='later' ? {pending:true} : null) }
+  ];
+
+  if(draft.remind && !draft.remind.pending){
+    list.push(
+      { key:'rs', head:'【1問】リマインド', q:'いつから？', hint:'期限：' + fmt(draft.deadline),
+        opts:[
+          {v:'today', t:'今日から'},
+          {v:'before', t:'期限の3日前から', rec:true},
+          {v:'pick', t:'日付を指定する'}
+        ],
+        set:v => draft.remind.start = v, ask: v => v==='pick' ? ['startDate','開始日を入力（YYYY-MM-DD）'] : null },
+
+      { key:'re', head:'【1問】リマインド', q:'いつまで？', hint:'',
+        opts:[
+          {v:'deadline', t:'期限日まで', rec:true},
+          {v:'done', t:'完了までずっと'},
+          {v:'pick', t:'日付を指定する'}
+        ],
+        set:v => draft.remind.end = v, ask: v => v==='pick' ? ['endDate','終了日を入力（YYYY-MM-DD）'] : null },
+
+      { key:'rf', head:'【1問】リマインド', q:'頻度は？', hint:'',
+        opts:[
+          {v:'weekday', t:'平日の朝1回', rec:true},
+          {v:'daily', t:'毎日1回'},
+          {v:'custom', t:'曜日・時刻を指定する'}
+        ],
+        set:v => draft.remind.freq = v, ask: v => v==='custom' ? ['freqDetail','曜日と時刻（例：月水金 8:00）'] : null },
+
+      { key:'rc', head:'【1問】リマインド', q:'伝え方は？',
+        hint:'Webアプリのため、マナーモードを貫通する爆音アラームは実現できない（OS制約）。',
+        opts:[
+          {v:'both', t:'通知＋バイブ', rec:true},
+          {v:'sound', t:'通知音のみ'},
+          {v:'vib', t:'バイブのみ'},
+          {v:'silent', t:'画面表示のみ（サイレント）'}
+        ],
+        set:v => draft.remind.channel = v }
+    );
+  }
+  return list;
+}
+
+function renderStep(){
+  const list = steps();
+  if(step >= list.length){ commit(); return; }
+  const s = list[step];
+  const q = typeof s.q === 'function' ? s.q() : s.q;
+  const opts = typeof s.opts === 'function' ? s.opts() : s.opts;
+
+  let html = `<div class="qhead">${s.head}</div><div class="qtext">${esc(q)}</div>`;
+  if(s.hint) html += `<div class="qhint">${esc(s.hint)}</div>`;
+  html += `<div class="qhint" style="border-left:3px solid var(--line);padding-left:9px">「${esc(draft.title)}」</div>`;
+  opts.forEach((o,i) => {
+    html += `<button class="opt" data-v="${o.v}"><b>${i+1}.</b>${esc(o.t)}`
+          + (o.rec ? '<span class="rec">推奨</span>' : '')
+          + (o.pre ? '<span class="pre">音声から既定</span>' : '') + `</button>`;
+  });
+  html += `<div class="wizfoot"><button class="linkbtn" id="wizBack">${step===0 ? '← 入力に戻る' : '← 前の問いへ'}</button>`
+        + `<button class="linkbtn" id="wizCancel">この入力を破棄</button></div>`;
+  wizEl.innerHTML = html;
+
+  wizEl.querySelectorAll('.opt').forEach(b => b.onclick = () => {
+    const v = b.dataset.v;
+    s.set(v);
+    if(s.ask){
+      const a = s.ask(v);
+      if(a){
+        const input = prompt(a[1], '');
+        if(input) draft.remind[a[0]] = input.trim();
+      }
+    }
+    step++; renderStep();
+  });
+  document.getElementById('wizBack').onclick = () => {
+    if(step === 0){ wizEl.classList.add('hidden'); capEl.classList.remove('hidden'); }
+    else { step--; renderStep(); }
+  };
+  document.getElementById('wizCancel').onclick = () => {
+    draft = null; memoText.value=''; wizEl.classList.add('hidden'); capEl.classList.remove('hidden');
+  };
+}
+
+function commit(){
+  db.memos.unshift(draft);
+  save(db);
+  draft = null; memoText.value = '';
+  wizEl.classList.add('hidden'); capEl.classList.remove('hidden');
+  render();
+  document.getElementById('board').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+/* ========== 描画 ========== */
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function render(){
+  [1,2,3,4].forEach(n => document.getElementById('c'+n).innerHTML = '');
+  const live = db.memos.filter(m => !m.done);
+  live.forEach(m => {
+    const eq = effectiveQuadrant(m);
+    const promoted = eq !== m.quadrant;
+    const d = daysLeft(m.deadline);
+    const dtxt = m.deadline ? (d < 0 ? `期限超過 ${-d}日` : d === 0 ? '今日が期限' : `あと${d}日 (${fmt(m.deadline)})`) : '期限なし';
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `<div class="ttl">${esc(m.title)}</div>`
+      + `<div class="meta">${promoted ? '<span class="up">▲Ⅱから昇格</span> · ' : ''}${esc(dtxt)}`
+      + (m.who ? ' · ' + esc(m.who) : '') + (m.remind ? ' · 🔔' : '') + `</div>`;
+    el.onclick = () => detail(m.id);
+    document.getElementById('c'+eq).appendChild(el);
+  });
+  [1,2,3,4].forEach(n => {
+    const c = document.getElementById('c'+n);
+    if(!c.children.length) c.innerHTML = '<div class="empty">なし</div>';
+  });
+}
+
+/* ========== 詳細 ========== */
+const modal = document.getElementById('modal');
+function closeModal(){ modal.className='hidden'; modal.innerHTML=''; }
+
+function detail(id){
+  const m = db.memos.find(x => x.id === id); if(!m) return;
+  const eq = effectiveQuadrant(m);
+  const r = m.remind;
+  const rtxt = !r ? 'なし'
+    : r.pending ? 'あとで決める'
+    : [ {today:'今日から',before:'期限の3日前から',pick:'指定:'+(r.startDate||'—')}[r.start],
+        {deadline:'期限日まで',done:'完了までずっと',pick:'指定:'+(r.endDate||'—')}[r.end],
+        {weekday:'平日の朝1回',daily:'毎日1回',custom:(r.freqDetail||'指定')}[r.freq],
+        {both:'通知＋バイブ',sound:'通知音のみ',vib:'バイブのみ',silent:'画面表示のみ'}[r.channel] ].filter(Boolean).join(' / ');
+
+  let mv = '';
+  [1,2,3,4].forEach(n => mv += `<button class="${QCLS[n]}" data-mv="${n}"${n===m.quadrant?' style="outline:3px solid #22201d"':''}>${QNAME[n]}</button>`);
+
+  modal.className = 'mask';
+  modal.innerHTML = `<div class="sheet">
+    <h3>${esc(m.title)}</h3>
+    <div class="kv"><span>本文</span><span>${esc(m.text)}</span></div>
+    <div class="kv"><span>象限</span><span>${QNAME[eq]}${eq!==m.quadrant?'（元：'+QNAME[m.quadrant]+' / 期限接近で自動昇格）':''}</span></div>
+    <div class="kv"><span>期限</span><span>${fmt(m.deadline)}${m.deadlineLabel?'（'+esc(m.deadlineLabel)+'）':''}</span></div>
+    <div class="kv"><span>相手</span><span>${esc(m.who||'—')}</span></div>
+    <div class="kv"><span>リマインド</span><span>${esc(rtxt)}</span></div>
+    <p class="note">象限を変える：</p>
+    <div class="movegrid">${mv}</div>
+    <div class="rowbtns">
+      <button id="dDel">削除</button>
+      <button id="dDone" class="primary">完了にする</button>
+    </div>
+    <div class="wizfoot"><button class="linkbtn" id="dClose">閉じる</button></div>
+  </div>`;
+  modal.onclick = e => { if(e.target === modal) closeModal(); };
+  modal.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => {
+    m.quadrant = +b.dataset.mv; save(db); render(); detail(id);
+  });
+  document.getElementById('dDone').onclick = () => {
+    m.done = true; m.doneAt = new Date().toISOString(); save(db); render(); closeModal();
+  };
+  document.getElementById('dDel').onclick = () => {
+    if(confirm('このメモを削除する？')){ db.memos = db.memos.filter(x => x.id !== id); save(db); render(); closeModal(); }
+  };
+  document.getElementById('dClose').onclick = closeModal;
+}
+
+/* ========== 履歴 / 仕様 ========== */
+document.getElementById('btnHist').onclick = () => {
+  const done = db.memos.filter(m => m.done);
+  const body = done.length
+    ? done.map(m => `<div class="histitem">${esc(m.title)}<div class="meta" style="font-size:11px;color:var(--sub)">${QNAME[m.quadrant]} · 完了 ${m.doneAt ? m.doneAt.slice(0,10) : ''}</div></div>`).join('')
+    : '<p class="note">完了したメモはまだない。</p>';
+  modal.className = 'mask';
+  modal.innerHTML = `<div class="sheet"><h3>履歴（完了）</h3>${body}
+    <div class="wizfoot"><button class="linkbtn" id="hClose">閉じる</button></div></div>`;
+  modal.onclick = e => { if(e.target === modal) closeModal(); };
+  document.getElementById('hClose').onclick = closeModal;
+};
+
+document.getElementById('btnInfo').onclick = () => {
+  modal.className = 'mask';
+  modal.innerHTML = `<div class="sheet"><h3>この版でできること / できないこと</h3>
+    <p class="note" style="font-size:13px">
+    <b>できる</b><br>
+    ・音声（または手入力）→ 一問一答で4象限へ振り分け<br>
+    ・音声から期限・相手を自動抽出してタイトル化<br>
+    ・期限${PROMOTE_DAYS}日前になったら Ⅱ→Ⅰ へ自動昇格<br>
+    ・データは端末内に保存（キー：${KEY}）<br><br>
+    <b>まだできない（未実装・次の工程）</b><br>
+    ・通知／バイブの実際の発火。今は設定を記録しているだけ<br>
+    ・.ics 書き出し、コピー用テキスト<br><br>
+    <b>原理的にできない（OS制約・盛らない）</b><br>
+    ・アプリを閉じている間の、マナーモードを貫通する爆音アラーム<br>
+    ・iOSではバックグラウンドの予約通知が不安定<br>
+    ・音声認識はオフライン不可・精度は端末依存
+    </p>
+    <div class="wizfoot"><button class="linkbtn" id="iClose">閉じる</button></div></div>`;
+  modal.onclick = e => { if(e.target === modal) closeModal(); };
+  document.getElementById('iClose').onclick = closeModal;
+};
+
+/* ========== 起動 ========== */
+render();
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
