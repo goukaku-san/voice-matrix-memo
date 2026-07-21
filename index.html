@@ -278,13 +278,21 @@ function decideQuadrant(imp, urg){
   if(isImportant(imp)) return isUrgent(urg) ? 1 : 2;
   return isUrgent(urg) ? 3 : 4;
 }
-/* 表示上の象限（期限接近で Ⅱ→Ⅰ に自動昇格） */
+/* 表示上の象限（期限接近で Ⅱ→Ⅰ に自動昇格）
+   ただし手動で置き直したメモ（pinned）は動かさない。
+   本人が明示した位置を機械が勝手に戻すと、機能そのものが信用されなくなる。 */
 function effectiveQuadrant(m){
-  if(m.quadrant === 2 && m.deadline){
+  if(m.quadrant === 2 && m.deadline && !m.pinned){
     const d = daysLeft(m.deadline);
     if(d !== null && d <= PROMOTE_DAYS) return 1;
   }
   return m.quadrant;
+}
+/* 自動昇格の対象になっていたか（手動で留める時の告知に使う） */
+function wouldPromote(m){
+  if(m.quadrant !== 2 || !m.deadline) return false;
+  const d = daysLeft(m.deadline);
+  return d !== null && d <= PROMOTE_DAYS;
 }
 
 /* ========== 音声認識 ========== */
@@ -523,7 +531,7 @@ function render(){
     const el = document.createElement('div');
     el.className = 'card';
     el.innerHTML = `<div class="ttl">${esc(m.title)}</div>`
-      + `<div class="meta">${promoted ? '<span class="up">▲Ⅱから昇格</span> · ' : ''}${esc(dtxt)}`
+      + `<div class="meta">${promoted ? '<span class="up">▲Ⅱから昇格</span> · ' : ''}${m.pinned && wouldPromote(m) ? '📌 ' : ''}${esc(dtxt)}`
       + (m.who ? ' · ' + esc(m.who) : '') + (m.remind ? ' · 🔔' : '') + `</div>`;
     el.dataset.id = m.id;
     el.addEventListener('pointerdown', ev => grabStart(ev, el, m));
@@ -630,11 +638,20 @@ function cleanupGrab(){
 /* 掴んでいる間は画面を動かさない（passive:falseでないとpreventDefaultが効かない） */
 document.addEventListener('touchmove', e => { if(grab && grab.active) e.preventDefault(); }, {passive:false});
 
+/* 手動で象限を置き直す。判定は表示上の位置と比べる——
+   自動昇格でⅠに出ているメモを「Ⅱへ戻す」操作が、内部値の比較だと素通りしてしまうため。 */
 function moveMemo(id, q){
-  const m = db.memos.find(x => x.id === id); if(!m || m.quadrant === q) return;
+  const m = db.memos.find(x => x.id === id); if(!m) return;
+  const pin = (q === 2);                                    // Ⅱに手で置いた＝自動昇格させない
+  if(effectiveQuadrant(m) === q && !!m.pinned === pin) return;
+  const heldBack = pin && wouldPromote({...m, quadrant:2});  // 本来なら昇格していたか
   m.quadrant = q;
+  m.pinned = pin;
   save(db); render();
-  if(q === 4) offerDiscard(m);      // Ⅳ＝無駄に入れた＝そもそもやらない選択肢を出す
+  if(q === 4){ offerDiscard(m); return; }
+  if(heldBack) showUndo('期限が近いが Ⅱ に留めた（自動昇格を解除）', '昇格に戻す', () => {
+    m.pinned = false; save(db); render();
+  });
 }
 
 /* Ⅳ（無駄）へ移したら「やらない」を1問だけ提案する */
@@ -686,13 +703,16 @@ function detail(id){
         {both:'通知＋バイブ',sound:'通知音のみ',vib:'バイブのみ',silent:'画面表示のみ'}[r.channel] ].filter(Boolean).join(' / ');
 
   let mv = '';
-  [1,2,3,4].forEach(n => mv += `<button class="${QCLS[n]}" data-mv="${n}"${n===m.quadrant?' style="outline:3px solid #22201d"':''}>${QNAME[n]}</button>`);
+  [1,2,3,4].forEach(n => mv += `<button class="${QCLS[n]}" data-mv="${n}"${n===eq?' style="outline:3px solid #22201d"':''}>${QNAME[n]}</button>`);
+  const qtxt = eq !== m.quadrant ? QNAME[eq] + '（元：' + QNAME[m.quadrant] + ' / 期限接近で自動昇格）'
+             : m.pinned          ? QNAME[eq] + '（手動で固定 / 自動昇格しない）'
+             : QNAME[eq];
 
   modal.className = 'mask';
   modal.innerHTML = `<div class="sheet">
     <h3>${esc(m.title)}</h3>
     <div class="kv"><span>本文</span><span>${esc(m.text)}</span></div>
-    <div class="kv"><span>象限</span><span>${QNAME[eq]}${eq!==m.quadrant?'（元：'+QNAME[m.quadrant]+' / 期限接近で自動昇格）':''}</span></div>
+    <div class="kv"><span>象限</span><span>${qtxt}</span></div>
     <div class="kv"><span>期限</span><span>${fmt(m.deadline)}${m.deadlineLabel?'（'+esc(m.deadlineLabel)+'）':''}</span></div>
     <div class="kv"><span>相手</span><span>${esc(m.who||'—')}</span></div>
     <div class="kv"><span>リマインド</span><span>${esc(rtxt)}</span></div>
@@ -711,7 +731,7 @@ function detail(id){
   </div>`;
   modal.onclick = e => { if(e.target === modal) closeModal(); };
   modal.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => {
-    m.quadrant = +b.dataset.mv; save(db); render(); detail(id);
+    moveMemo(id, +b.dataset.mv); detail(id);   // ドラッグと同じ扱いにする（Ⅱは手動固定）
   });
   document.getElementById('dIcs').onclick  = () => downloadIcs(m);
   document.getElementById('dCopy').onclick = e => copyPlain(m, e.currentTarget);
@@ -746,6 +766,7 @@ document.getElementById('btnInfo').onclick = () => {
     ・音声から期限・相手を自動抽出してタイトル化<br>
     ・期限${PROMOTE_DAYS}日前になったら Ⅱ→Ⅰ へ自動昇格<br>
     ・カードを長押しして別の象限へ移動。ゴミ箱へ落とせば削除（7秒以内なら元に戻せる）<br>
+    ・手でⅡに置いたメモは自動昇格しない（📌 が付く）。手動の指定が機械より優先される<br>
     ・データは端末内に保存（キー：${KEY}）<br><br>
     ・リマインド：設定時刻（既定 ${db.settings.notifyTime}）を過ぎたメモを、アプリを開いている間に通知＋バイブ。開いた時にもまとめて出す<br><br>
     ・各メモをカレンダー用 .ics に書き出し／貼り付け用テキストにコピー<br><br>
