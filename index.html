@@ -86,8 +86,35 @@ main{padding:16px;max-width:640px;margin:0 auto}
 .q1{background:var(--q1)} .q2{background:var(--q2)} .q3{background:var(--q3)} .q4{background:var(--q4)}
 .quad h2{font-size:13px;margin:0 0 1px;font-weight:800}
 .quad .sub{font-size:10.5px;opacity:.9;margin-bottom:8px;line-height:1.35}
-.cards{display:flex;flex-direction:column;gap:6px}
-.card{background:rgba(255,255,255,.96);color:var(--ink);border-radius:8px;padding:8px 9px;font-size:13px;cursor:pointer}
+.cards{display:flex;flex-direction:column;gap:6px;min-height:34px}
+.card{
+  background:rgba(255,255,255,.96);color:var(--ink);border-radius:8px;padding:8px 9px;font-size:13px;cursor:grab;
+  touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+}
+.card.held{opacity:.35}
+.quad.over{outline:4px solid #22201d;outline-offset:-3px}
+
+/* ドラッグ中の分身 */
+#ghost{
+  position:fixed;z-index:200;pointer-events:none;background:#fff;color:var(--ink);
+  border:2px solid #22201d;border-radius:9px;padding:9px 11px;font-size:13px;font-weight:600;
+  max-width:62vw;transform:translate(-50%,-50%) rotate(-2deg);box-shadow:0 10px 26px rgba(0,0,0,.35);
+}
+/* 捨てる場所（ドラッグ中だけ出る） */
+#trash{
+  position:fixed;left:0;right:0;bottom:0;z-index:150;display:none;
+  background:#5a5551;color:#fff;text-align:center;font-weight:700;font-size:16px;
+  padding:20px 0 calc(20px + env(safe-area-inset-bottom));
+}
+#trash.show{display:block}
+#trash.over{background:#c0392b}
+/* 取り消し */
+#undo{
+  position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:160;
+  background:#22201d;color:#fff;border-radius:11px;padding:12px 14px;font-size:14px;
+  display:flex;justify-content:space-between;align-items:center;gap:10px;
+}
+#undo button{background:none;border:1px solid #fff;color:#fff;border-radius:7px;padding:7px 13px;font-size:13px;font-family:inherit;cursor:pointer;flex-shrink:0}
 .card .ttl{font-weight:600;line-height:1.4}
 .card .meta{font-size:10.5px;color:var(--sub);margin-top:3px}
 .card .up{color:#c0392b;font-weight:700}
@@ -138,14 +165,16 @@ main{padding:16px;max-width:640px;margin:0 auto}
   <section id="board">
     <div class="axis"><span>← 緊急</span><span>緊急でない →</span></div>
     <div class="grid">
-      <div class="quad q1"><h2>Ⅰ 必須</h2><div class="sub">緊急 × 重要<br>締切のある仕事・重要な会議</div><div class="cards" id="c1"></div></div>
-      <div class="quad q2"><h2>Ⅱ 生産性とバランス</h2><div class="sub">緊急でない × 重要<br>人間関係作り・計画や準備</div><div class="cards" id="c2"></div></div>
-      <div class="quad q3"><h2>Ⅲ 錯覚</h2><div class="sub">緊急 × 重要でない<br>重要でない電話・妨害や邪魔</div><div class="cards" id="c3"></div></div>
-      <div class="quad q4"><h2>Ⅳ 無駄</h2><div class="sub">緊急でない × 重要でない<br>暇つぶし・意味のない行動</div><div class="cards" id="c4"></div></div>
+      <div class="quad q1" data-drop="1"><h2>Ⅰ 必須</h2><div class="sub">緊急 × 重要<br>締切のある仕事・重要な会議</div><div class="cards" id="c1"></div></div>
+      <div class="quad q2" data-drop="2"><h2>Ⅱ 生産性とバランス</h2><div class="sub">緊急でない × 重要<br>人間関係作り・計画や準備</div><div class="cards" id="c2"></div></div>
+      <div class="quad q3" data-drop="3"><h2>Ⅲ 錯覚</h2><div class="sub">緊急 × 重要でない<br>重要でない電話・妨害や邪魔</div><div class="cards" id="c3"></div></div>
+      <div class="quad q4" data-drop="4"><h2>Ⅳ 無駄</h2><div class="sub">緊急でない × 重要でない<br>暇つぶし・意味のない行動</div><div class="cards" id="c4"></div></div>
     </div>
+    <p class="note" id="dragHint"></p>
   </section>
 </main>
 
+<div id="trash" data-drop="trash">🗑 ここに捨てる</div>
 <div id="modal" class="hidden"></div>
 
 <script>
@@ -496,13 +525,149 @@ function render(){
     el.innerHTML = `<div class="ttl">${esc(m.title)}</div>`
       + `<div class="meta">${promoted ? '<span class="up">▲Ⅱから昇格</span> · ' : ''}${esc(dtxt)}`
       + (m.who ? ' · ' + esc(m.who) : '') + (m.remind ? ' · 🔔' : '') + `</div>`;
-    el.onclick = () => detail(m.id);
+    el.dataset.id = m.id;
+    el.addEventListener('pointerdown', ev => grabStart(ev, el, m));
     document.getElementById('c'+eq).appendChild(el);
   });
   [1,2,3,4].forEach(n => {
     const c = document.getElementById('c'+n);
     if(!c.children.length) c.innerHTML = '<div class="empty">なし</div>';
   });
+  document.getElementById('dragHint').textContent = live.length
+    ? 'カードをタップで詳細。長押ししてから動かすと、別の象限やゴミ箱へ移せる。'
+    : '';
+}
+
+/* ========== ドラッグ＆ドロップ ==========
+   iOSではHTML5標準のdrag&dropが効かないため、ポインタ操作から自前で組む。
+   タッチは長押し（350ms）で掴む＝指を滑らせただけの時は今まで通り画面が流れる。
+   マウスは6px動かした時点で掴む。掴まずに離せば「タップ＝詳細を開く」。 */
+const HOLD_MS = 350, MOVE_TOL = 6;
+let grab = null;
+
+function grabStart(ev, el, m){
+  if(ev.button != null && ev.button !== 0) return;           // 右クリック等は無視
+  grab = { id:m.id, title:m.title, el, x:ev.clientX, y:ev.clientY, active:false, moved:false, timer:null };
+  if(ev.pointerType !== 'mouse'){
+    grab.timer = setTimeout(() => { if(grab && !grab.moved) activateGrab(); }, HOLD_MS);
+  }
+  try{ el.setPointerCapture(ev.pointerId); grab.pid = ev.pointerId; }catch(e){}
+  el.addEventListener('pointermove', grabMove);
+  el.addEventListener('pointerup', grabEnd);
+  el.addEventListener('pointercancel', grabCancel);
+}
+
+function activateGrab(){
+  if(!grab || grab.active) return;
+  grab.active = true;
+  grab.el.classList.add('held');
+  const g = document.createElement('div');
+  g.id = 'ghost'; g.textContent = grab.title;
+  g.style.left = grab.x + 'px'; g.style.top = grab.y + 'px';
+  document.body.appendChild(g);
+  grab.ghost = g;
+  document.getElementById('trash').classList.add('show');
+  if(navigator.vibrate) navigator.vibrate(30);              // 掴めたことを指に返す
+}
+
+function grabMove(ev){
+  if(!grab) return;
+  const dx = ev.clientX - grab.x, dy = ev.clientY - grab.y;
+  if(!grab.active){
+    if(Math.hypot(dx, dy) > MOVE_TOL){
+      if(ev.pointerType === 'mouse') activateGrab();          // マウスは即掴む
+      else { grab.moved = true; clearTimeout(grab.timer); }   // タッチは画面スクロールに譲る
+    }
+    if(!grab.active) return;
+  }
+  grab.ghost.style.left = ev.clientX + 'px';
+  grab.ghost.style.top  = ev.clientY + 'px';
+  highlight(dropUnder(ev.clientX, ev.clientY));
+}
+
+function dropUnder(x, y){
+  const el = document.elementFromPoint(x, y);
+  return el ? el.closest('[data-drop]') : null;
+}
+
+function highlight(target){
+  document.querySelectorAll('.quad.over, #trash.over').forEach(e => e.classList.remove('over'));
+  if(target) target.classList.add('over');
+}
+
+function grabEnd(ev){
+  if(!grab) return;
+  const g = grab;
+  // 落下先は後片付けより先に確定させる。cleanupGrab がゴミ箱を隠すため、
+  // 順序を逆にすると elementFromPoint がゴミ箱を見つけられなくなる。
+  const target = g.active ? dropUnder(ev.clientX, ev.clientY) : null;
+  cleanupGrab();
+  highlight(null);
+  if(!g.active){                                             // 動かさずに離した＝タップ
+    if(Math.hypot(ev.clientX - g.x, ev.clientY - g.y) < 10) detail(g.id);
+    return;
+  }
+  if(!target) return;                                        // 枠の外で離したら何もしない
+  if(target.dataset.drop === 'trash') trashMemo(g.id);
+  else moveMemo(g.id, +target.dataset.drop);
+}
+
+function grabCancel(){ cleanupGrab(); highlight(null); }
+
+function cleanupGrab(){
+  if(!grab) return;
+  clearTimeout(grab.timer);
+  if(grab.ghost) grab.ghost.remove();
+  grab.el.classList.remove('held');
+  try{ if(grab.pid != null) grab.el.releasePointerCapture(grab.pid); }catch(e){}
+  grab.el.removeEventListener('pointermove', grabMove);
+  grab.el.removeEventListener('pointerup', grabEnd);
+  grab.el.removeEventListener('pointercancel', grabCancel);
+  document.getElementById('trash').classList.remove('show');
+  grab = null;
+}
+
+/* 掴んでいる間は画面を動かさない（passive:falseでないとpreventDefaultが効かない） */
+document.addEventListener('touchmove', e => { if(grab && grab.active) e.preventDefault(); }, {passive:false});
+
+function moveMemo(id, q){
+  const m = db.memos.find(x => x.id === id); if(!m || m.quadrant === q) return;
+  m.quadrant = q;
+  save(db); render();
+  if(q === 4) offerDiscard(m);      // Ⅳ＝無駄に入れた＝そもそもやらない選択肢を出す
+}
+
+/* Ⅳ（無駄）へ移したら「やらない」を1問だけ提案する */
+function offerDiscard(m){
+  showUndo('「' + m.title + '」を Ⅳ 無駄 へ移した。やめる？', 'このまま捨てる', () => trashMemo(m.id));
+}
+
+let lastTrashed = null;
+function trashMemo(id){
+  const i = db.memos.findIndex(x => x.id === id); if(i < 0) return;
+  lastTrashed = { memo: db.memos[i], index: i };
+  db.memos.splice(i, 1);
+  save(db); render();
+  showUndo('「' + lastTrashed.memo.title + '」を捨てた', '元に戻す', () => {
+    db.memos.splice(lastTrashed.index, 0, lastTrashed.memo);
+    lastTrashed = null; save(db); render();
+  });
+}
+
+let undoTimer = null;
+function showUndo(msg, btnLabel, fn){
+  hideUndo();
+  const el = document.createElement('div');
+  el.id = 'undo';
+  el.innerHTML = `<span>${esc(msg)}</span><button type="button">${esc(btnLabel)}</button>`;
+  el.querySelector('button').onclick = () => { fn(); hideUndo(); };
+  document.body.appendChild(el);
+  undoTimer = setTimeout(hideUndo, 7000);
+}
+function hideUndo(){
+  clearTimeout(undoTimer);
+  const e = document.getElementById('undo');
+  if(e) e.remove();
 }
 
 /* ========== 詳細 ========== */
@@ -580,6 +745,7 @@ document.getElementById('btnInfo').onclick = () => {
     ・音声（または手入力）→ 一問一答で4象限へ振り分け<br>
     ・音声から期限・相手を自動抽出してタイトル化<br>
     ・期限${PROMOTE_DAYS}日前になったら Ⅱ→Ⅰ へ自動昇格<br>
+    ・カードを長押しして別の象限へ移動。ゴミ箱へ落とせば削除（7秒以内なら元に戻せる）<br>
     ・データは端末内に保存（キー：${KEY}）<br><br>
     ・リマインド：設定時刻（既定 ${db.settings.notifyTime}）を過ぎたメモを、アプリを開いている間に通知＋バイブ。開いた時にもまとめて出す<br><br>
     ・各メモをカレンダー用 .ics に書き出し／貼り付け用テキストにコピー<br><br>
